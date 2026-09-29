@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1F3864">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Gastos">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<title>Control de gastos</title>
+</head>
+<body>
+<header class="top">
+  <h1 id="ttl">Control de gastos</h1>
+  <button id="sync" class="pill" data-act="sync" aria-label="Estado de sincronización">…</button>
+</header>
+<main id="view" aria-live="polite"></main>
+<nav class="tabs" id="tabs">
+  <button data-tab="cargar">➕<span>Cargar</span></button>
+  <button data-tab="movs">🧾<span>Movs</span></button>
+  <button data-tab="resumen">📊<span>Resumen</span></button>
+  <button data-tab="tarjeta">💳<span>Deudas</span></button>
+  <button data-tab="ajustes">⚙️<span>Ajustes</span></button>
+</nav>
+<dialog id="dlg"></dialog>
+<div id="toast" role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>
