@@ -20,7 +20,7 @@ const TIPOS=['Fijo','Variable','Extraordinario'], NATS=['Imprescindible','Presci
 const DEF_CATS=[['Supermercado','Gasto',0],['Comida afuera','Gasto',1],['Farmacia','Gasto',0],['Compras digitales','Gasto',1],['Ropa','Gasto',1],['Hogar','Gasto',0],['Imprevistos','Gasto',0],['Servicios','Gasto',0],['Suscripciones','Gasto',1],['Transferencias o pagos a terceros','Gasto',0],['Otros','Gasto',1],['Impuestos y aportes','Gasto',0],['Salud','Gasto',0],['Transporte','Gasto',0],['Ocio y deporte','Gasto',1],['Pago de deuda','Pago deuda',0],['Ahorro / inversión','Ahorro',0]].map(([n,g,h])=>({n,g,h:!!h}));
 
 function emptyData(){return{v:1,mes:'2026-10',meta:{u:0},
- config:{tcIngresos:1500,tcGastos:1500,umbral:20000,categorias:DEF_CATS},
+ config:{tcIngresos:1500,tcGastos:1500,umbral:20000,sueldoPersonal:500000,categorias:DEF_CATS},
  presupuesto:[],ingresosEsperados:[],deudas:[],
  tarjeta:{saldoInicial:0,minimo:0,pagoPlaneado:0,intereses:0,saldoReal:null,reserva:0},
  ingresos:[],movimientos:[]}}
@@ -99,11 +99,14 @@ function calc(d=data){
   const by=(key,list,pk)=>list.map(n=>({n,real:sum(gas.filter(m=>m[key]===n)),pres:sum(presG.filter(p=>p[pk]===n),eq)}));
   const byCat=c.categorias.filter(k=>k.g==='Gasto').map(k=>({n:k.n,hor:!!k.h,real:sum(gas.filter(m=>m.cat===k.n)),pres:sum(presG.filter(p=>p.cat===k.n),eq),hors:sum(gas.filter(m=>m.cat===k.n&&m.hor)),nHor:gas.filter(m=>m.cat===k.n&&m.hor).length}));
   const hor=sum(gas.filter(m=>m.hor)),presc=sum(gas.filter(m=>m.nat==='Prescindible'));
+  const sueldo=+c.sueldoPersonal||0,gasInd=gas.filter(m=>m.quien==='Individual'),gasFam=gas.filter(m=>m.quien!=='Individual');
+  const gastosPers=sum(gasInd),gastosFam=sum(gasFam),presPers=sum(presG.filter(p=>p.quien==='Individual'),eq);
   const card=d.tarjeta,pagosTarj=sum(movs.filter(m=>m.deudaId==='tarjeta'));
   const tarjEst=(+card.saldoInicial||0)+tarj+(+card.intereses||0)-pagosTarj;
   return{movs,gas,ings,ingRec,ingEsp,gastos,presGastos:sum(presG,eq),resultado:ingRec-gastos,pagosDeuda,ahorro,resto,
    tasa:ingRec?(ahorro+resto)/ingRec:0,tarj,cajaReal:ingRec+saldoPrevio-(gastos-tarj)-pagosDeuda-ahorro,saldoPrevio,presc,hor,nHor:gas.filter(m=>m.hor).length,
    usdIng:sum(ings.filter(i=>i.tipo!==SALDO_PREVIO),i=>+i.usd||0),usdGas:sum(gas,m=>+m.usd||0),
+   sueldo,gastosPers,gastosFam,presPers,persSaldo:sueldo-gastosPers,famResto:ingRec-sueldo-gastosFam-pagosDeuda-ahorro,
    byCat,byTipo:by('tipo',TIPOS,'tipo'),byNat:by('nat',NATS,'nat'),byQuien:QUIENES.map(n=>({n,real:sum(gas.filter(m=>m.quien===n))})),
    byMedio:MEDIOS.map(n=>({n,real:sum(gas.filter(m=>m.medio===n))})),
    byWeek:[1,2,3,4].map(w=>({n:'Semana '+w,r:['1–7','8–14','15–21','22–31'][w-1],real:sum(gas.filter(m=>m.sem===w)),hor:sum(gas.filter(m=>m.sem===w&&m.hor))})),
@@ -139,7 +142,8 @@ function ingFormHtml(i){return `<form id="fIng" autocomplete="off"><input type="
 
 function vCargar(v){const s=calc(),t=todayStr();
   const hoy=s.gas.filter(m=>m.fecha===t).reduce((a,m)=>a+m.total,0);
-  v.innerHTML=`<div class="kpis"><div class="kpi"><small>Gastado hoy</small><b>${fARS(hoy)}</b></div><div class="kpi"><small>Gastado en el mes</small><b>${fARS(s.gastos)}</b></div></div>
+  v.innerHTML=`<div class="kpis"><div class="kpi"><small>Gastado hoy</small><b>${fARS(hoy)}</b></div><div class="kpi"><small>Gastado en el mes</small><b>${fARS(s.gastos)}</b></div>
+  <div class="kpi"><small>Personal: te queda de tu sueldo</small><b class="${s.persSaldo<0?'neg':'pos'}">${fARS(s.persSaldo)}</b></div><div class="kpi"><small>Familiar: gastado</small><b>${fARS(s.gastosFam)}</b></div></div>
   <div class="seg"><button class="${formMode==='gasto'?'on':''}" data-act="mode" data-m="gasto">Gasto / pago</button><button class="${formMode==='ingreso'?'on':''}" data-act="mode" data-m="ingreso">Ingreso</button></div>
   <div class="card">${formMode==='gasto'?movFormHtml({}):ingFormHtml({})}</div>
   <div class="card"><h2>Últimos cargados</h2>${s.movs.slice().sort((a,b)=>(b.u||0)-(a.u||0)).slice(0,5).map(movRow).join('')||'<div class="mut">Todavía no cargaste nada.</div>'}</div>`;
@@ -161,6 +165,19 @@ function vResumen(v){const s=calc();
    ${K('Tasa de ahorro real',fPct(s.tasa))}${K('Ahorro aportado',fARS(s.ahorro))}${K('Pagos de deuda',fARS(s.pagosDeuda))}${K('Gasto en tarjeta',fARS(s.tarj))}
    ${K('Caja real (sin pagar tarjeta)',fARS(s.cajaReal))}${K('Gastos prescindibles',fARS(s.presc)+' · '+fPct(s.gastos?s.presc/s.gastos:0))}${K('🐜 Gastos hormiga ('+s.nHor+')',fARS(s.hor)+' · '+fPct(s.gastos?s.hor/s.gastos:0))}${K('Hormiga proyectada al año',fARS(s.hor*12))}
    ${K('USD ingresados',fUSD(s.usdIng))}${K('USD gastados',fUSD(s.usdGas))}</div>
+  <div class="card"><h2>Finanzas separadas</h2>
+   <div class="li"><b>👨‍👩‍👧 Familiar</b><span></span></div>
+   <div class="li"><span>Ingresos recibidos</span><span class="r">${fARS(s.ingRec)}</span></div>
+   <div class="li"><span>− Sueldo personal (Gonza)</span><span class="r">${fARS(s.sueldo)}</span></div>
+   <div class="li"><span>− Gastos familiares</span><span class="r">${fARS(s.gastosFam)}</span></div>
+   <div class="li"><span>− Pagos de deuda y ahorro</span><span class="r">${fARS(s.pagosDeuda+s.ahorro)}</span></div>
+   <div class="li"><b>Resto familiar del mes</b><span class="r ${s.famResto<0?'neg':'pos'}">${fARS(s.famResto)}</span></div>
+   <div class="li" style="margin-top:8px"><b>👤 Personal (Gonza)</b><span></span></div>
+   <div class="li"><span>Sueldo asignado</span><span class="r">${fARS(s.sueldo)}</span></div>
+   <div class="li"><span>− Gastos personales</span><span class="r">${fARS(s.gastosPers)}</span></div>
+   <div class="li"><b>Saldo personal</b><span class="r ${s.persSaldo<0?'neg':'pos'}">${fARS(s.persSaldo)}</span></div>
+   ${s.presPers?`<div class="mut">Presupuesto de rubros marcados como personales: ${fARS(s.presPers)}</div>`:''}
+   <div class="mut">Gasto personal = movimientos con "Quién: Individual". Cambiá el sueldo en Ajustes.</div></div>
   ${s.sinCat?`<div class="warn">${s.sinCat} movimiento(s) con categoría que ya no existe.</div>`:''}
   <div class="warn">La <b>caja real</b> incluye el saldo previo y no es ahorro: si no pagás toda la tarjeta, reservá esa plata. El resultado del mes cuenta los consumos de tarjeta aunque no los hayas pagado.</div>
   ${blk('Por categoría (real / presupuesto)',s.byCat.filter(r=>r.real||r.pres).map(r=>r))}${blk('Por tipo',s.byTipo)}${blk('Por naturaleza',s.byNat)}${blk('Familiar / individual',s.byQuien,false)}${blk('Por medio de pago',s.byMedio,false)}${blk('Por semana',s.byWeek,false)}
@@ -190,7 +207,7 @@ function vAjustes(v){const c=data.config;
   <label>Usuario de GitHub</label><input data-c="owner" value="${esc(cfg.owner)}" autocapitalize="off"><label>Repositorio PRIVADO de datos</label><input data-c="repo" value="${esc(cfg.repo)}" autocapitalize="off">
   <label>Token (fine-grained)</label><input data-c="token" type="password" value="${esc(cfg.token)}"><label>Archivo de datos</label><input data-c="path" value="${esc(cfg.path)}"><label>Rama (vacío = la principal)</label><input data-c="branch" value="${esc(cfg.branch)}">
   <button class="btn" data-act="sync">Probar y sincronizar ahora</button></div>
-  <div class="card"><h2>Parámetros</h2><label>Dólar real de liquidación de ingresos</label><input data-p="tcIngresos" inputmode="decimal" value="${c.tcIngresos}"><label>Dólar para gastos en USD</label><input data-p="tcGastos" inputmode="decimal" value="${c.tcGastos}"><label>Umbral gasto hormiga (ARS)</label><input data-p="umbral" inputmode="decimal" value="${c.umbral}"></div>
+  <div class="card"><h2>Parámetros</h2><label>Dólar real de liquidación de ingresos</label><input data-p="tcIngresos" inputmode="decimal" value="${c.tcIngresos}"><label>Dólar para gastos en USD</label><input data-p="tcGastos" inputmode="decimal" value="${c.tcGastos}"><label>Sueldo personal mensual (Gonza) que separás para tus gastos</label><input data-p="sueldoPersonal" inputmode="decimal" value="${c.sueldoPersonal}"><label>Umbral gasto hormiga (ARS)</label><input data-p="umbral" inputmode="decimal" value="${c.umbral}"></div>
   <div class="card"><h2>Presupuesto mensual</h2><table class="ed" id="tp"></table><button class="btn sec sm" data-act="addPres">+ Agregar</button></div>
   <div class="card"><h2>Ingresos esperados</h2><table class="ed" id="ti"></table><button class="btn sec sm" data-act="addIngE">+ Agregar</button></div>
   <div class="card"><h2>Otras deudas</h2><table class="ed" id="td"></table><button class="btn sec sm" data-act="addDeuda">+ Agregar</button></div>
@@ -199,7 +216,7 @@ function vAjustes(v){const c=data.config;
   v.querySelectorAll('[data-p]').forEach(i=>i.onchange=()=>{c[i.dataset.p]=parseMonto(i.value);touchCfg()});
   const tbl=(id,arr,cols)=>{const t=$(id);t.innerHTML=arr.map((r,ix)=>`<tr>${cols.map(([k,type,list])=>`<td>${type==='sel'?`<select data-a="${ix}" data-k="${k}">${opts(list,r[k])}</select>`:`<input data-a="${ix}" data-k="${k}" data-t="${type}" value="${esc(r[k]??'')}" ${type==='num'?'inputmode="decimal"':''}>`}</td>`).join('')}<td><button class="btn red sm" data-act="rm" data-list="${id}" data-i="${ix}">×</button></td></tr>`).join('');
     t.querySelectorAll('[data-a]').forEach(i=>i.onchange=()=>{arr[+i.dataset.a][i.dataset.k]=i.dataset.t==='num'?parseMonto(i.value):i.value;touchCfg()})};
-  tbl('#tp',data.presupuesto,[['concepto','txt'],['cat','sel',c.categorias.map(k=>k.n)],['tipo','sel',TIPOS],['nat','sel',NATS],['moneda','sel',['ARS','USD']],['monto','num']]);
+  tbl('#tp',data.presupuesto,[['concepto','txt'],['cat','sel',c.categorias.map(k=>k.n)],['tipo','sel',TIPOS],['nat','sel',NATS],['quien','sel',QUIENES],['moneda','sel',['ARS','USD']],['monto','num']]);
   tbl('#ti',data.ingresosEsperados,[['fuente','txt'],['ars','num'],['usd','num']]);
   tbl('#td',data.deudas,[['nombre','txt'],['moneda','sel',['ARS','USD']],['saldoInicial','num'],['tasa','num'],['vto','txt']]);
   $('#imp').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const j=normalize(JSON.parse(await f.text()));if(!confirm('Esto reemplaza los datos de este dispositivo. ¿Continuar?'))return;data=j;data.meta.u=Date.now();changed();toast('Importado');render()}catch(err){toast('Archivo inválido')}}}
@@ -225,7 +242,7 @@ function download(name,text,mime){const a=document.createElement('a');a.href=URL
 const csvq=v=>{v=String(v??'');return /[",\n;]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
 function csv(){const s=calc();const h=['fecha','descripcion','categoria','grupo','monto_ars','monto_usd','total_ars_equiv','medio','tipo','naturaleza','quien','hormiga','deuda','nota'];
   return '﻿'+[h.join(',')].concat(s.movs.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(m=>[m.fecha,m.desc,m.cat,m.grupo,m.ars||0,m.usd||0,Math.round(m.total),m.medio,m.tipo,m.nat,m.quien,m.hor?'Sí':'No',m.deudaId||'',m.nota].map(csvq).join(','))).join('\n')}
-function reportTxt(){const s=calc();const L=[`# Reporte ${data.mes}`,'',`Ingresos recibidos: ${fARS(s.ingRec)} (esperados ${fARS(s.ingEsp)})`,`Saldo previo incorporado: ${fARS(s.saldoPrevio)}`,`Gastos: ${fARS(s.gastos)} (presupuesto ${fARS(s.presGastos)})`,`Resultado: ${fARS(s.resultado)}`,`Pagos de deuda: ${fARS(s.pagosDeuda)} | Ahorro: ${fARS(s.ahorro)} | Resto libre: ${fARS(s.resto)}`,`Gasto en tarjeta: ${fARS(s.tarj)} | Caja real sin pagar tarjeta: ${fARS(s.cajaReal)}`,`Prescindibles: ${fARS(s.presc)} | Hormiga: ${fARS(s.hor)} (${s.nHor} mov.)`,`Tarjeta: saldo inicial ${fARS(+data.tarjeta.saldoInicial||0)}, estimado 31/10 ${fARS(s.tarjEst)}`,'','## Por categoría (real / presupuesto)'];
+function reportTxt(){const s=calc();const L=[`# Reporte ${data.mes}`,'',`Ingresos recibidos: ${fARS(s.ingRec)} (esperados ${fARS(s.ingEsp)})`,`Saldo previo incorporado: ${fARS(s.saldoPrevio)}`,`Gastos: ${fARS(s.gastos)} (presupuesto ${fARS(s.presGastos)})`,`Resultado: ${fARS(s.resultado)}`,`Familiar: resto ${fARS(s.famResto)} | Personal: sueldo ${fARS(s.sueldo)}, gastado ${fARS(s.gastosPers)}, saldo ${fARS(s.persSaldo)}`,`Pagos de deuda: ${fARS(s.pagosDeuda)} | Ahorro: ${fARS(s.ahorro)} | Resto libre: ${fARS(s.resto)}`,`Gasto en tarjeta: ${fARS(s.tarj)} | Caja real sin pagar tarjeta: ${fARS(s.cajaReal)}`,`Prescindibles: ${fARS(s.presc)} | Hormiga: ${fARS(s.hor)} (${s.nHor} mov.)`,`Tarjeta: saldo inicial ${fARS(+data.tarjeta.saldoInicial||0)}, estimado 31/10 ${fARS(s.tarjEst)}`,'','## Por categoría (real / presupuesto)'];
   s.byCat.filter(r=>r.real||r.pres).forEach(r=>L.push(`- ${r.n}: ${fARS(r.real)} / ${fARS(r.pres)}`));return L.join('\n')}
 
 /* ---------- eventos ---------- */
@@ -243,7 +260,7 @@ document.addEventListener('click',e=>{const t=e.target.closest('[data-tab],[data
   else if(a==='expJson')download(`gastos-${data.mes}.json`,JSON.stringify(data,null,1),'application/json');
   else if(a==='expTxt'){navigator.clipboard?.writeText(reportTxt()).then(()=>toast('Reporte copiado'),()=>toast('No se pudo copiar'))}
   else if(a==='print')print();
-  else if(a==='addPres'){data.presupuesto.push({id:uid(),concepto:'',cat:data.config.categorias[0].n,tipo:'Fijo',nat:'Imprescindible',moneda:'ARS',monto:0});touchCfg();render()}
+  else if(a==='addPres'){data.presupuesto.push({id:uid(),concepto:'',cat:data.config.categorias[0].n,tipo:'Fijo',nat:'Imprescindible',quien:'Familiar',moneda:'ARS',monto:0});touchCfg();render()}
   else if(a==='addIngE'){data.ingresosEsperados.push({id:uid(),fuente:'',ars:0,usd:0});touchCfg();render()}
   else if(a==='addDeuda'){data.deudas.push({id:uid(),nombre:'',moneda:'ARS',saldoInicial:0,tasa:0,vto:''});touchCfg();render()}
   else if(a==='rm'){const map={'#tp':data.presupuesto,'#ti':data.ingresosEsperados,'#td':data.deudas};map[t.dataset.list].splice(+t.dataset.i,1);touchCfg();render()}});
