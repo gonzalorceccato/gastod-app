@@ -14,6 +14,8 @@ function parseMonto(v){let s=String(v??'').trim().replace(/\s|\$/g,'');if(!s)ret
   const n=parseFloat(s);return isFinite(n)?n:0}
 
 const MEDIOS=['Efectivo','Débito','Tarjeta de crédito','Transferencia','Débito automático','Billetera virtual'];
+const TIPOS_ING=['Proyecto habitual','Freelance / trabajo extra','Otro ingreso','Saldo previo (dinero que ya tenía)'];
+const SALDO_PREVIO=TIPOS_ING[3];
 const TIPOS=['Fijo','Variable','Extraordinario'], NATS=['Imprescindible','Prescindible'], QUIENES=['Familiar','Individual'];
 const DEF_CATS=[['Supermercado','Gasto',0],['Comida afuera','Gasto',1],['Farmacia','Gasto',0],['Compras digitales','Gasto',1],['Ropa','Gasto',1],['Hogar','Gasto',0],['Imprevistos','Gasto',0],['Servicios','Gasto',0],['Suscripciones','Gasto',1],['Transferencias o pagos a terceros','Gasto',0],['Otros','Gasto',1],['Impuestos y aportes','Gasto',0],['Salud','Gasto',0],['Transporte','Gasto',0],['Ocio y deporte','Gasto',1],['Pago de deuda','Pago deuda',0],['Ahorro / inversión','Ahorro',0]].map(([n,g,h])=>({n,g,h:!!h}));
 
@@ -86,7 +88,8 @@ function calc(d=data){
   const gas=movs.filter(m=>m.grupo==='Gasto');
   const sum=(a,f=x=>x.total)=>a.reduce((s,x)=>s+f(x),0);
   const ings=d.ingresos.filter(i=>!i.x);
-  const ingRec=sum(ings,i=>(+i.ars||0)+(+i.usd||0)*(+i.tc||tcI));
+  const valIng=i=>(+i.ars||0)+(+i.usd||0)*(+i.tc||tcI);
+  const ingRec=sum(ings.filter(i=>i.tipo!==SALDO_PREVIO),valIng),saldoPrevio=sum(ings.filter(i=>i.tipo===SALDO_PREVIO),valIng);
   const ingEsp=sum(d.ingresosEsperados,i=>(+i.ars||0)+(+i.usd||0)*tcI);
   const eq=p=>p.moneda==='USD'?p.monto*tcG:+p.monto||0;
   const presG=d.presupuesto.filter(p=>catOf(p.cat)&&catOf(p.cat).g==='Gasto');
@@ -99,8 +102,8 @@ function calc(d=data){
   const card=d.tarjeta,pagosTarj=sum(movs.filter(m=>m.deudaId==='tarjeta'));
   const tarjEst=(+card.saldoInicial||0)+tarj+(+card.intereses||0)-pagosTarj;
   return{movs,gas,ings,ingRec,ingEsp,gastos,presGastos:sum(presG,eq),resultado:ingRec-gastos,pagosDeuda,ahorro,resto,
-   tasa:ingRec?(ahorro+resto)/ingRec:0,tarj,cajaReal:ingRec-(gastos-tarj)-pagosDeuda-ahorro,presc,hor,nHor:gas.filter(m=>m.hor).length,
-   usdIng:sum(ings,i=>+i.usd||0),usdGas:sum(gas,m=>+m.usd||0),
+   tasa:ingRec?(ahorro+resto)/ingRec:0,tarj,cajaReal:ingRec+saldoPrevio-(gastos-tarj)-pagosDeuda-ahorro,saldoPrevio,presc,hor,nHor:gas.filter(m=>m.hor).length,
+   usdIng:sum(ings.filter(i=>i.tipo!==SALDO_PREVIO),i=>+i.usd||0),usdGas:sum(gas,m=>+m.usd||0),
    byCat,byTipo:by('tipo',TIPOS,'tipo'),byNat:by('nat',NATS,'nat'),byQuien:QUIENES.map(n=>({n,real:sum(gas.filter(m=>m.quien===n))})),
    byMedio:MEDIOS.map(n=>({n,real:sum(gas.filter(m=>m.medio===n))})),
    byWeek:[1,2,3,4].map(w=>({n:'Semana '+w,r:['1–7','8–14','15–21','22–31'][w-1],real:sum(gas.filter(m=>m.sem===w)),hor:sum(gas.filter(m=>m.sem===w&&m.hor))})),
@@ -126,10 +129,12 @@ function movFormHtml(m){const isNew=!m.id;
   <button class="btn" type="submit">${isNew?'Guardar gasto':'Guardar cambios'}</button>
   ${isNew?'':'<button class="btn red" type="button" data-act="delMov">Eliminar</button>'}</form>`}
 function ingFormHtml(i){return `<form id="fIng" autocomplete="off"><input type="hidden" name="mid" value="${esc(i.id||"")}">
-  <label>Fuente</label><input name="fuente" list="fuentes" value="${esc(i.fuente||'')}" required><datalist id="fuentes">${data.ingresosEsperados.map(x=>`<option>${esc(x.fuente)}</option>`).join('')}</datalist>
+  <label>Tipo de ingreso</label><select name="tipo">${opts(TIPOS_ING,i.tipo||TIPOS_ING[0])}</select>
+  <label>Fuente / proyecto</label><input name="fuente" list="fuentes" value="${esc(i.fuente||'')}" placeholder="Ej: Kore, trabajo freelance, saldo a fin de septiembre" required><datalist id="fuentes">${data.ingresosEsperados.map(x=>`<option>${esc(x.fuente)}</option>`).join('')}</datalist>
   <div class="row"><div><label>Monto ARS</label><input name="ars" inputmode="decimal" value="${esc(i.ars||'')}"></div><div><label>Monto USD</label><input name="usd" inputmode="decimal" value="${esc(i.usd||'')}"></div></div>
   <label>Tipo de cambio REAL de liquidación (si hay USD)</label><input name="tc" inputmode="decimal" value="${esc(i.tc||'')}" placeholder="vacío = ${data.config.tcIngresos}">
   <label>Fecha de cobro</label><input type="date" name="fecha" value="${esc(i.fecha||todayStr())}" required>
+  <label>Descripción (opcional)</label><input name="desc" value="${esc(i.desc||'')}" placeholder="Ej: logo para cliente X, sobrante de septiembre">
   <button class="btn" type="submit">${i.id?'Guardar cambios':'Guardar ingreso'}</button>${i.id?'<button class="btn red" type="button" data-act="delIng">Eliminar</button>':''}</form>`}
 
 function vCargar(v){const s=calc(),t=todayStr();
@@ -144,20 +149,20 @@ function vMovs(v){const s=calc();let l=s.movs;
   if(filt.q)l=l.filter(m=>(m.desc+' '+m.nota).toLowerCase().includes(filt.q.toLowerCase()));if(filt.cat)l=l.filter(m=>m.cat===filt.cat);
   const days={};l.forEach(m=>(days[m.fecha]=days[m.fecha]||[]).push(m));
   v.innerHTML=`<div class="card noprint"><div class="row"><input id="q" placeholder="Buscar…" value="${esc(filt.q)}"><select id="fc"><option value="">Todas las categorías</option>${catOpts(filt.cat)}</select></div></div>
-  <div class="card"><h2>Ingresos (${fARS(s.ingRec)})</h2>${s.ings.map(i=>`<div class="li" data-act="editIng" data-id="${esc(i.id)}"><div>${esc(i.fuente)}<div class="mut">${esc(i.fecha)}</div></div><div class="r">${i.usd?fUSD(+i.usd)+' ':''}${i.ars?fARS(+i.ars):''}</div></div>`).join('')||'<div class="mut">Sin ingresos cargados.</div>'}</div>
+  <div class="card"><h2>Ingresos (${fARS(s.ingRec)}${s.saldoPrevio?' + saldo previo '+fARS(s.saldoPrevio):''})</h2>${s.ings.map(i=>`<div class="li" data-act="editIng" data-id="${esc(i.id)}"><div>${esc(i.fuente)}${i.tipo===SALDO_PREVIO?'<span class="tag">saldo previo</span>':i.tipo&&i.tipo!==TIPOS_ING[0]?`<span class="tag">${esc(i.tipo.split(' ')[0])}</span>`:''}<div class="mut">${esc(i.fecha)}${i.desc?' · '+esc(i.desc):''}</div></div><div class="r">${i.usd?fUSD(+i.usd)+' ':''}${i.ars?fARS(+i.ars):''}</div></div>`).join('')||'<div class="mut">Sin ingresos cargados.</div>'}</div>
   ${Object.keys(days).sort().reverse().map(d=>`<div class="card"><h2>${esc(d.split('-').reverse().join('/'))} · ${fARS(days[d].filter(m=>m.grupo==='Gasto').reduce((a,m)=>a+m.total,0))}</h2>${days[d].map(movRow).join('')}</div>`).join('')||'<div class="card mut">Sin movimientos.</div>'}`;
   $('#q').oninput=e=>{filt.q=e.target.value;clearTimeout(vMovs.t);vMovs.t=setTimeout(()=>{render();const q=$('#q');q.focus();q.setSelectionRange(q.value.length,q.value.length)},250)};
   $('#fc').onchange=e=>{filt.cat=e.target.value;render()}}
 function blk(title,rows,pres=true){return `<div class="card"><h2>${title}</h2>${rows.map(r=>`<div style="margin:8px 0"><div class="li" style="border:0;padding:0"><span>${esc(r.n)}${r.r?` <span class="mut">${r.r}</span>`:''}</span><span class="r">${fARS(r.real)}${pres&&r.pres?` <span class="mut">/ ${fARS(r.pres)}</span>`:''}</span></div>${bar(r.real,pres?r.pres:0)}</div>`).join('')}</div>`}
 const K=(l,val,cls='')=>`<div class="kpi"><small>${l}</small><b class="${cls}">${val}</b></div>`;
 function vResumen(v){const s=calc();
-  v.innerHTML=`<div class="kpis">${K('Ingresos recibidos',fARS(s.ingRec))}${K('Ingresos esperados',fARS(s.ingEsp))}${K('Gastos del mes',fARS(s.gastos))}${K('Presupuesto de gastos',fARS(s.presGastos))}
+  v.innerHTML=`<div class="kpis">${K('Ingresos recibidos',fARS(s.ingRec))}${K('Ingresos esperados',fARS(s.ingEsp))}${s.saldoPrevio?K('Saldo previo incorporado',fARS(s.saldoPrevio)):''}${K('Gastos del mes',fARS(s.gastos))}${K('Presupuesto de gastos',fARS(s.presGastos))}
    ${K('Resultado (ingresos − gastos)',fARS(s.resultado),s.resultado<0?'neg':'pos')}${K('Resto libre',fARS(s.resto),s.resto<0?'neg':'pos')}
    ${K('Tasa de ahorro real',fPct(s.tasa))}${K('Ahorro aportado',fARS(s.ahorro))}${K('Pagos de deuda',fARS(s.pagosDeuda))}${K('Gasto en tarjeta',fARS(s.tarj))}
    ${K('Caja real (sin pagar tarjeta)',fARS(s.cajaReal))}${K('Gastos prescindibles',fARS(s.presc)+' · '+fPct(s.gastos?s.presc/s.gastos:0))}${K('🐜 Gastos hormiga ('+s.nHor+')',fARS(s.hor)+' · '+fPct(s.gastos?s.hor/s.gastos:0))}${K('Hormiga proyectada al año',fARS(s.hor*12))}
    ${K('USD ingresados',fUSD(s.usdIng))}${K('USD gastados',fUSD(s.usdGas))}</div>
   ${s.sinCat?`<div class="warn">${s.sinCat} movimiento(s) con categoría que ya no existe.</div>`:''}
-  <div class="warn">La <b>caja real</b> no es ahorro: si no pagás toda la tarjeta, reservá esa plata. El resultado del mes cuenta los consumos de tarjeta aunque no los hayas pagado.</div>
+  <div class="warn">La <b>caja real</b> incluye el saldo previo y no es ahorro: si no pagás toda la tarjeta, reservá esa plata. El resultado del mes cuenta los consumos de tarjeta aunque no los hayas pagado.</div>
   ${blk('Por categoría (real / presupuesto)',s.byCat.filter(r=>r.real||r.pres).map(r=>r))}${blk('Por tipo',s.byTipo)}${blk('Por naturaleza',s.byNat)}${blk('Familiar / individual',s.byQuien,false)}${blk('Por medio de pago',s.byMedio,false)}${blk('Por semana',s.byWeek,false)}
   <div class="card"><h2>🐜 Hormiga por categoría</h2>${s.byCat.filter(r=>r.hors).map(r=>`<div class="li"><span>${esc(r.n)} <span class="mut">${r.nHor} mov.</span></span><span class="r">${fARS(r.hors)}</span></div>`).join('')||'<div class="mut">Sin gastos hormiga todavía.</div>'}<div class="mut">Hormiga = gasto ≤ ${fARS(data.config.umbral)} en categorías candidatas, o marcado a mano.</div></div>
   <div class="card noprint"><h2>Exportar para analizar</h2>
@@ -211,7 +216,7 @@ function saveMov(f){const id=f.mid.value||uid(),monto=parseMonto(f.monto.value);
   if(old)Object.assign(old,m,{x:false});else data.movimientos.push(m);
   if(!m.fecha.startsWith(data.mes))toast('Ojo: la fecha está fuera de '+data.mes);
   LS('gc_medio',m.medio);changed();$('#dlg').open&&$('#dlg').close();toast(old?'Actualizado':'Guardado ✓');render()}
-function saveIng(f){const id=f.mid.value||uid();const o={id,fuente:f.fuente.value.trim(),ars:parseMonto(f.ars.value),usd:parseMonto(f.usd.value),tc:parseMonto(f.tc.value)||0,fecha:f.fecha.value,u:Date.now()};
+function saveIng(f){const id=f.mid.value||uid();const o={id,fuente:f.fuente.value.trim(),ars:parseMonto(f.ars.value),usd:parseMonto(f.usd.value),tc:parseMonto(f.tc.value)||0,fecha:f.fecha.value,tipo:f.tipo.value,desc:f.desc.value.trim(),u:Date.now()};
   const old=data.ingresos.find(x=>x.id===id);if(old)Object.assign(old,o,{x:false});else data.ingresos.push(o);changed();$('#dlg').open&&$('#dlg').close();toast('Guardado ✓');render()}
 function openDlg(html){const d=$('#dlg');d.innerHTML=html+'<button class="btn sec" type="button" data-act="closeDlg">Cerrar</button>';d.showModal();wireForms(d)}
 
@@ -220,7 +225,7 @@ function download(name,text,mime){const a=document.createElement('a');a.href=URL
 const csvq=v=>{v=String(v??'');return /[",\n;]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
 function csv(){const s=calc();const h=['fecha','descripcion','categoria','grupo','monto_ars','monto_usd','total_ars_equiv','medio','tipo','naturaleza','quien','hormiga','deuda','nota'];
   return '﻿'+[h.join(',')].concat(s.movs.slice().sort((a,b)=>a.fecha.localeCompare(b.fecha)).map(m=>[m.fecha,m.desc,m.cat,m.grupo,m.ars||0,m.usd||0,Math.round(m.total),m.medio,m.tipo,m.nat,m.quien,m.hor?'Sí':'No',m.deudaId||'',m.nota].map(csvq).join(','))).join('\n')}
-function reportTxt(){const s=calc();const L=[`# Reporte ${data.mes}`,'',`Ingresos recibidos: ${fARS(s.ingRec)} (esperados ${fARS(s.ingEsp)})`,`Gastos: ${fARS(s.gastos)} (presupuesto ${fARS(s.presGastos)})`,`Resultado: ${fARS(s.resultado)}`,`Pagos de deuda: ${fARS(s.pagosDeuda)} | Ahorro: ${fARS(s.ahorro)} | Resto libre: ${fARS(s.resto)}`,`Gasto en tarjeta: ${fARS(s.tarj)} | Caja real sin pagar tarjeta: ${fARS(s.cajaReal)}`,`Prescindibles: ${fARS(s.presc)} | Hormiga: ${fARS(s.hor)} (${s.nHor} mov.)`,`Tarjeta: saldo inicial ${fARS(+data.tarjeta.saldoInicial||0)}, estimado 31/10 ${fARS(s.tarjEst)}`,'','## Por categoría (real / presupuesto)'];
+function reportTxt(){const s=calc();const L=[`# Reporte ${data.mes}`,'',`Ingresos recibidos: ${fARS(s.ingRec)} (esperados ${fARS(s.ingEsp)})`,`Saldo previo incorporado: ${fARS(s.saldoPrevio)}`,`Gastos: ${fARS(s.gastos)} (presupuesto ${fARS(s.presGastos)})`,`Resultado: ${fARS(s.resultado)}`,`Pagos de deuda: ${fARS(s.pagosDeuda)} | Ahorro: ${fARS(s.ahorro)} | Resto libre: ${fARS(s.resto)}`,`Gasto en tarjeta: ${fARS(s.tarj)} | Caja real sin pagar tarjeta: ${fARS(s.cajaReal)}`,`Prescindibles: ${fARS(s.presc)} | Hormiga: ${fARS(s.hor)} (${s.nHor} mov.)`,`Tarjeta: saldo inicial ${fARS(+data.tarjeta.saldoInicial||0)}, estimado 31/10 ${fARS(s.tarjEst)}`,'','## Por categoría (real / presupuesto)'];
   s.byCat.filter(r=>r.real||r.pres).forEach(r=>L.push(`- ${r.n}: ${fARS(r.real)} / ${fARS(r.pres)}`));return L.join('\n')}
 
 /* ---------- eventos ---------- */
